@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="data:," />
-    <title>きりとりん Web版（プロトタイプ）</title>
+    <title>きりとりん Web版</title>
     <style>
       :root {
         --bg: #ffffff;
@@ -456,7 +456,7 @@
   <body>
     <main>
       <header>
-        <h1><svg class="scissors" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>きりとりん Web版（プロトタイプ）</h1>
+        <h1><svg class="scissors" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>きりとりん Web版</h1>
         <p class="lead">動画を再エンコードせず、キーフレームの位置で分割するツールです。再エンコードしないので、画質は劣化しません。</p>
         <p class="privacy"><strong>動画はサーバーへ送信されません。</strong>ファイルの読み込みから分割・保存まで、すべての処理はこのブラウザの中だけで行われます。</p>
       </header>
@@ -683,6 +683,11 @@
       // 開けない環境があるため、開けた実績・開けなかった事実を記録する
       var pickerBroken = false;
       var pickerWorked = false;
+      // Android版Chrome（アプリ内ブラウザを除く）の判定。この環境では
+      // 保存ピッカーを使わず、通常のダウンロードで保存する（下記参照）
+      var uaString = navigator.userAgent || '';
+      var isInAppUa = /(?:FBAN|FBAV|FB_IAB|FB4A|FBIOS|Instagram|Line\/|Twitter|;\s*wv\))/i.test(uaString);
+      var isAndroidChrome = /Android/i.test(uaString) && /Chrome\//i.test(uaString) && !isInAppUa;
       var running = false;
       // ファイル選択の世代番号。選択が差し替わるたびに進み、非同期処理は
       // 開始時点の値と照合して、古い選択の結果を新しい選択へ書き込まない
@@ -1004,6 +1009,12 @@
       //
       // ・保存ピッカー（showSaveFilePicker）がある環境（PC版 Chrome / Edge 等）:
       //   保存ダイアログ経由でディスクへ直接書く。完了まで確認できる。
+      //   ただし書き込み後に保存先ファイルのサイズを必ず照合する。
+      //   環境によっては書き込みが成功したように見えて保存先が
+      //   0バイトになることがあり、照合で不一致なら成功扱いにしない。
+      // ・Android版Chrome: ピッカーは使わない。通常のダウンロードなら
+      //   保存先の選択画面を開かず、ダウンロードフォルダへ直接保存
+      //   される（ギャラリー等からも参照できる）。
       // ・ピッカーが無い環境（Androidのアプリ内ブラウザ等）:
       //   Blob URLアンカー方式になるが、この方式はアプリ内ブラウザでは
       //   保存が始まらないことが実機で確認できている。成立し得るのは
@@ -1020,6 +1031,10 @@
       // 実機で確認できている。その場合は pickerBroken が立ち、以後は
       // ピッカー無し環境として扱う（判定は savePart 内で行う）。
       function hasSavePicker() {
+        // Android版Chromeでは、APIが存在してもピッカーは使わない
+        // （0バイト保存の事例と、毎回選択画面が開く煩わしさのため）。
+        // 通常のダウンロードで保存する
+        if (isAndroidChrome) return false;
         return !pickerBroken && typeof window.showSaveFilePicker === 'function';
       }
 
@@ -1037,11 +1052,13 @@
         a.rel = 'noopener';
         document.body.appendChild(a);
         a.click();
-        // 大きなファイルは読み込みに時間がかかるため、URLの破棄は遅らせる
+        // 大きなファイルは読み込み・書き出しに時間がかかるため、
+        // URLの破棄は十分に遅らせる（1GB超のパートでも途中で
+        // 取り消してダウンロードを打ち切らないように）
         setTimeout(function () {
           if (a.parentNode) a.parentNode.removeChild(a);
           URL.revokeObjectURL(url);
-        }, 600000);
+        }, 1800000);
       }
 
       // ピッカー呼び出しの見切り時間。showSaveFilePicker() が解決も
@@ -1063,11 +1080,28 @@
       //              （アンカー方式で保存を試行済み。以後はピッカー無し扱い）
       // 'cancelled'  保存先の選択をユーザーがキャンセルした
       // 'writeError' 保存先は決まったが書き込みに失敗した（容量不足等）
+      // 'sizeMismatch' 書き込みは完了応答だったが、保存先ファイルの
+      //              サイズがパート本体と一致しなかった（0バイト等）。
+      //              成功扱いにせず、通常ダウンロードで保存を試行済み。
+      //              以後はピッカー無し環境として扱う
+      // 'sizeMismatchFallbackFailed' サイズ不一致のため通常ダウンロードで
+      //              保存し直そうとしたが、その呼び出し自体が例外で失敗した
+      // 'verifyUnknown' 書き込みは完了応答だったが、保存先ファイルの
+      //              サイズを照合できず、保存できたか確認できない
+      //              （getFile が無い／失敗した）。成功扱いにしない。
+      //              照合不能はピッカー故障とは限らないため pickerBroken
+      //              は立てない
+      // 'anchorFailed' アンカー方式で保存を試みようとしたが、その呼び出し
+      //              自体が同期例外で失敗し、保存を開始できなかった
       function savePart(res) {
         if (!hasSavePicker()) {
           try {
             anchorDownload(res.blob, res.name);
-          } catch (e) {}
+          } catch (e) {
+            // アンカー保存の呼び出し自体が失敗した場合は、保存を
+            // 試行済み（'anchor'）とは扱わず、失敗として区別する
+            return Promise.resolve('anchorFailed');
+          }
           return Promise.resolve('anchor');
         }
         return new Promise(function (resolve) {
@@ -1084,7 +1118,13 @@
             pickerBroken = true;
             try {
               anchorDownload(res.blob, res.name);
-            } catch (e) {}
+            } catch (e) {
+              // アンカー保存の呼び出し自体が失敗した場合は、保存を
+              // 試行済み（'pickerUnavailable'）とは扱わず、失敗として
+              // 区別する
+              finish('anchorFailed');
+              return;
+            }
             finish('pickerUnavailable');
           }
           // ピッカーが応答しないまま固まった場合の見切り。「開けなかった」
@@ -1122,9 +1162,10 @@
             })
             .then(function (writable) {
               if (timedOut || !writable) return null;
-              if (res.blob.stream) {
-                return res.blob.stream().pipeTo(writable);
-              }
+              // blob.stream().pipeTo() は使わない。環境によっては
+              // 書き込みが完了したように見えて保存先が0バイトになる
+              // 事例があるため、Blobをそのまま write して close する
+              // 方式に統一し、後段でサイズ照合する
               return writable.write(res.blob).then(function () {
                 return writable.close();
               });
@@ -1132,8 +1173,47 @@
             .then(function () {
               // タイムアウト後に遅れて成功しても、状態は変えない
               if (timedOut) return;
-              pickerWorked = true;
-              finish('picker');
+              // 書き込み先ファイルのサイズをパート本体と照合する。
+              // 完了応答でも保存先が0バイト等になっている環境がある
+              // ため、サイズが一致したときだけ「保存できた」とみなす
+              if (!handle || !handle.getFile) {
+                // 照合手段が無い環境では保存できたか確認できないため、
+                // 成功とは断定しない（pickerBroken は立てない）
+                finish('verifyUnknown');
+                return;
+              }
+              // getFile() が同期的に例外を投げる環境でも、非同期の
+              // reject と同じく「照合できなかった」として扱えるよう、
+              // Promise 経由で呼び出す（同期例外は下の catch に流れ、
+              // writeError ではなく verifyUnknown になる）
+              Promise.resolve().then(function () { return handle.getFile(); }).then(function (savedFile) {
+                if (timedOut) return;
+                if (savedFile.size === res.blob.size) {
+                  pickerWorked = true;
+                  finish('picker');
+                } else {
+                  // サイズ不一致＝この環境のピッカー書き込みは信用
+                  // できない。以後はピッカー無し扱いにし、この
+                  // パートは通常のダウンロードで保存し直す
+                  pickerBroken = true;
+                  try {
+                    anchorDownload(res.blob, res.name);
+                  } catch (e) {
+                    // 保存し直しの呼び出し自体が失敗した場合は、
+                    // 保存し直しができていないので sizeMismatch と
+                    // 区別して失敗として返す
+                    finish('sizeMismatchFallbackFailed');
+                    return;
+                  }
+                  finish('sizeMismatch');
+                }
+              }).catch(function () {
+                // 照合自体が失敗した環境では保存できたか確認できない
+                // ため、書き込みの完了応答だけで成功とは断定しない
+                // （pickerBroken は立てない）
+                if (timedOut) return;
+                finish('verifyUnknown');
+              });
             })
             .catch(function (err) {
               // タイムアウト後に遅れて失敗しても、状態は変えない
@@ -1196,9 +1276,10 @@
           setPartNote(findPartNote(res), '保存先の選択画面を開いています…');
         }
         savePart(res).then(function (how) {
-          if (how === 'pickerUnavailable') {
-            // ピッカーが開けない環境だと判明したので、一覧を描き直して
-            // 「共有して保存」を主ボタンに切り替えてから案内を出す
+          if (how === 'pickerUnavailable' || how === 'sizeMismatch' || how === 'sizeMismatchFallbackFailed' || how === 'anchorFailed') {
+            // ピッカーが開けない／書き込みが信用できない環境だと判明
+            // したので、一覧を描き直して「共有して保存」を主ボタンに
+            // 切り替えてから案内を出す
             renderResults();
           }
           var noteEl = findPartNote(res);
@@ -1212,6 +1293,14 @@
             setPartNote(noteEl, '');
           } else if (how === 'writeError') {
             setPartNote(noteEl, '保存先への書き込みに失敗しました。端末の空き容量を確認して、もう一度お試しください。');
+          } else if (how === 'sizeMismatch') {
+            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存を試みました。ダウンロード一覧でファイルのサイズを確認してください。うまくいかない場合は「共有して保存」をお試しください。');
+          } else if (how === 'sizeMismatchFallbackFailed') {
+            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存し直そうとしましたが、失敗しました。「共有して保存」をお試しください。');
+          } else if (how === 'verifyUnknown') {
+            setPartNote(noteEl, '保存できたか確認できませんでした。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は「共有して保存」をお試しください。');
+          } else if (how === 'anchorFailed') {
+            setPartNote(noteEl, '保存を開始できませんでした。もう一度お試しいただくか、「共有して保存」をお試しください。');
           }
         });
       }
@@ -1297,8 +1386,13 @@
         var activeStatus = (ui && ui.statusEl) || bulkStatus;
         var defaultLabel = (ui && ui.defaultLabel) || (groupedResults.length > 1 ? 'すべての動画のパートをダウンロード' : 'すべてダウンロード');
         var scopeVideoIndex = ui && ui.videoIndex != null ? ui.videoIndex : null;
-        bulkDownloading = true;
-        setAllBulkButtonsDisabled(true);
+        // フラグ設定と開始直後のボタン無効化は、下の try の内側で
+        // 行う（例外が起きても catch → finishBulk で必ず復帰させる）
+        // 照合できなかった（verifyUnknown）パートの件数。一括保存の
+        // どの終了経路でも最終案内に確認依頼を残すため、finishBulk が
+        // 参照できるよう、ピッカー経路の内側ではなくここで保持する
+        var verifyUnknownCount = 0;
+        var VERIFY_UNKNOWN_NOTE = '確認できなかったパートがあります。保存先のファイルのサイズを確認してください。';
         // スコープ付きの場合、対象ボタンのラベル操作のため再取得する
         // （setAllBulkButtonsDisabled 後も参照は有効）
 
@@ -1326,29 +1420,70 @@
           }
         }
         function finishBulk(message) {
-          if (bulkTimer) {
-            clearTimeout(bulkTimer);
-            bulkTimer = null;
-          }
+          // 後片付けは項目ごとに独立して try/catch で保護する。
+          // 1つが例外を投げても（例: ボタン復帰処理自体の例外）、
+          // 残りの後片付けが飛ばされず必ず実行されるようにするため
+          try {
+            if (bulkTimer) {
+              clearTimeout(bulkTimer);
+              bulkTimer = null;
+            }
+          } catch (e) {}
           bulkDownloading = false;
           // ピッカーが開けない環境だと分かったら、一覧の主ボタンを
-          // 「共有して保存」に切り替える（再描画でボタンが作り直される）
+          // 「共有して保存」に切り替える（再描画でボタンが作り直される）。
+          // 再描画で例外が起きても、後段のボタン・状態の復帰が飛ばされ
+          // ないよう、ここだけは例外を握って後片付けを続ける
           var needRerender = pickerBroken;
-          if (needRerender) renderResults();
-          setAllBulkButtonsDisabled(false);
+          if (needRerender) {
+            try { renderResults(); } catch (e) {}
+          }
+          try { setAllBulkButtonsDisabled(false); } catch (e) {}
           try {
             var b2 = currentButtonEl();
             if (b2) b2.textContent = defaultLabel;
             if (scopeVideoIndex == null) bulkDownloadButton.textContent = defaultLabel;
           } catch (e) {}
           if (message != null) {
+            // 一括保存のすべての終了経路はこの finishBulk を通る
+            // （通常完了、cancelled / writeError /
+            // sizeMismatchFallbackFailed 等の早期終了、runAnchorFrom
+            // 経由の pickerUnavailable / sizeMismatch 切り替え後の
+            // 完了・エラーも含む）。そのため、照合できなかった
+            // パートが1つでもあった場合は、どの経路で終わっても
+            // 最終案内から確認依頼が落ちないよう、ここで一括して
+            // 補う。既に同趣旨の一文を含むメッセージには重ねない
+            var finalMessage = message;
+            if (verifyUnknownCount > 0 && finalMessage.indexOf('確認できなかったパートがあります') === -1) {
+              finalMessage = finalMessage + VERIFY_UNKNOWN_NOTE;
+            }
             try {
               var s2 = currentStatusEl();
-              if (s2) s2.textContent = message;
-              if (scopeVideoIndex == null) bulkStatus.textContent = message;
+              if (s2) s2.textContent = finalMessage;
+              if (scopeVideoIndex == null) bulkStatus.textContent = finalMessage;
               // グループ保存の完了も全体ステータスには残さない（グループ内に表示）
             } catch (e) {}
           }
+        }
+
+        // 最終防衛: finishBulk 自体が例外で倒れた場合でも、タイマー・
+        // フラグ・ボタンだけは必ず戻す。各処理は独立に保護し、
+        // bulkDownloading の状態に依存せずに実行する。すでに復帰済みの
+        // 状態で二重に走っても害のない、冪等な復帰処理としておく
+        function finalBulkRecovery() {
+          try {
+            if (bulkTimer) {
+              clearTimeout(bulkTimer);
+              bulkTimer = null;
+            }
+          } catch (e) {}
+          bulkDownloading = false;
+          try { setAllBulkButtonsDisabled(false); } catch (e) {}
+          try {
+            var b = currentButtonEl();
+            if (b) b.textContent = defaultLabel;
+            if (scopeVideoIndex == null) bulkDownloadButton.textContent = defaultLabel;
+          } catch (e) {}
         }
 
         // アンカー方式で startIndex のパートから順に保存を試みる
@@ -1367,7 +1502,11 @@
               setBulkProgress('保存を試行中…（' + j + ' / ' + total + '）', j + ' / ' + total + ' パート目の保存を試みました…');
               bulkTimer = setTimeout(stepAnchor, 1600);
             } catch (e) {
-              finishBulk('一括保存中にエラーが発生しました。残りのパートは、各パートのボタンから個別に保存してください。');
+              try {
+                finishBulk('一括保存中にエラーが発生しました。残りのパートは、各パートのボタンから個別に保存してください。');
+              } catch (e2) {
+                finalBulkRecovery();
+              }
             }
           };
           stepAnchor();
@@ -1376,12 +1515,21 @@
         var anchorDoneMessage = '全 ' + total + ' パートの保存を試みました。ブラウザの制限で、2件目以降の保存が始まっていない場合があります。ダウンロード一覧を確認し、保存できていないパートは各パートのボタンから個別に保存してください。';
 
         try {
+          // フラグ設定と開始直後のボタン無効化も try の内側に含める。
+          // ここで例外が起きても、外側の catch → finishBulk で
+          // フラグとボタンが必ず復帰するようにするため
+          bulkDownloading = true;
+          setAllBulkButtonsDisabled(true);
           if (hasSavePicker()) {
             var i = 0;
             var stepPicker = function () {
               if (!bulkDownloading) return;
               if (i >= total) {
-                finishBulk('全 ' + total + ' パートの保存が終わりました。');
+                if (verifyUnknownCount > 0) {
+                  finishBulk('全 ' + total + ' パートの保存を試みました。確認できなかったパートがあります。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は、各パートの「共有して保存」をお試しください。');
+                } else {
+                  finishBulk('全 ' + total + ' パートの保存が終わりました。');
+                }
                 return;
               }
               var res = targets[i];
@@ -1389,6 +1537,12 @@
               savePart(res).then(function (how) {
                 if (!bulkDownloading) return;
                 if (how === 'picker') {
+                  i++;
+                  stepPicker();
+                } else if (how === 'verifyUnknown') {
+                  // 保存できたか確認できないパート。成功とは断定せず、
+                  // 件数を数えて残りの保存は続ける（最終案内で伝える）
+                  verifyUnknownCount++;
                   i++;
                   stepPicker();
                 } else if (how === 'cancelled') {
@@ -1400,12 +1554,47 @@
                   setAllBulkButtonsDisabled(true);
                   try { var s3 = currentStatusEl(); if (s3) s3.textContent = '保存先の選択画面が開きませんでした。通常のダウンロードに切り替えて、残りの保存を試みます。'; if (scopeVideoIndex == null) bulkStatus.textContent = '保存先の選択画面が開きませんでした。通常のダウンロードに切り替えて、残りの保存を試みます。'; } catch (e) {}
                   runAnchorFrom(i + 1, '全 ' + total + ' パートの保存を試みました。保存先の選択画面が開きませんでした。通常のダウンロードで保存を試みています。ダウンロード一覧を確認し、保存できていないパートは各パートの「共有して保存」から保存してください。');
+                } else if (how === 'sizeMismatch') {
+                  // そのパートは savePart 内で通常ダウンロードに切り替えて
+                  // 保存を試行済み。残りもアンカー方式に切り替えて続ける
+                  renderResults();
+                  setAllBulkButtonsDisabled(true);
+                  try { var s4 = currentStatusEl(); if (s4) s4.textContent = '保存先への書き込みが不完全だったため、通常のダウンロードに切り替えて残りの保存を試みます。'; if (scopeVideoIndex == null) bulkStatus.textContent = '保存先への書き込みが不完全だったため、通常のダウンロードに切り替えて残りの保存を試みます。'; } catch (e) {}
+                  runAnchorFrom(i + 1, '全 ' + total + ' パートの保存を試みました。保存先への書き込みが不完全だったパートがあったため、通常のダウンロードに切り替えて保存を試みています。ダウンロード一覧で各ファイルのサイズを確認し、保存できていないパートは各パートのボタンから個別に保存してください。');
+                } else if (how === 'sizeMismatchFallbackFailed') {
+                  finishBulk(partLabel(res) + ' は保存先に正しく書き込めず、通常のダウンロードでの保存し直しも失敗したため、一括保存を止めました。残りのパートは、各パートのボタンから個別に保存してください。');
+                } else if (how === 'anchor') {
+                  // 一括の途中で pickerBroken が立った（並行する個別保存
+                  // など）ため、このパートはアンカー方式で保存を試行
+                  // 済み。残りもアンカー方式に切り替えて一括を続ける
+                  renderResults();
+                  setAllBulkButtonsDisabled(true);
+                  try { var s5 = currentStatusEl(); if (s5) s5.textContent = '通常のダウンロードに切り替えて、残りの保存を試みます。'; if (scopeVideoIndex == null) bulkStatus.textContent = '通常のダウンロードに切り替えて、残りの保存を試みます。'; } catch (e) {}
+                  runAnchorFrom(i + 1, '全 ' + total + ' パートの保存を試みました。通常のダウンロードで保存を試みています。ダウンロード一覧を確認し、保存できていないパートは各パートのボタンから個別に保存してください。');
+                } else if (how === 'anchorFailed') {
+                  finishBulk(partLabel(res) + ' の保存を開始できなかったため、一括保存を止めました。残りのパートは、各パートのボタンから個別に保存してください。');
                 } else {
                   finishBulk(partLabel(res) + ' は保存ダイアログが開けず、通常のダウンロードで保存を試みました。一括保存はここで止めます。ダウンロード一覧で確認し、残りのパートは各パートのボタンから個別に保存してください。');
                 }
               }, function () {
                 if (!bulkDownloading) return;
                 finishBulk('一括保存中にエラーが発生しました。残りのパートは、各パートのボタンから個別に保存してください。');
+              }).catch(function () {
+                // 上のコールバック内（renderResults や後続処理、
+                // finishBulk 内の処理）で例外が起きても、未処理の
+                // 拒否のまま終わらせず、後片付け（フラグ・ボタン・
+                // 状態の復帰）を必ず走らせる。
+                // finishBulk は冪等（復帰済みの状態で二重に走っても
+                // 害はない）なので、bulkDownloading の状態には依存
+                // せず常に実行する。finishBulk の途中で例外が起きて
+                // フラグだけ先に戻っていた場合でも、ここで止まらず
+                // 後片付けを最後まで通すため
+                try {
+                  finishBulk('一括保存中にエラーが発生しました。残りのパートは、各パートのボタンから個別に保存してください。');
+                } catch (e) {
+                  // finishBulk 自体が例外で倒れた場合の最終防衛
+                  finalBulkRecovery();
+                }
               });
             };
             stepPicker();
@@ -1414,7 +1603,12 @@
 
           runAnchorFrom(0, anchorDoneMessage);
         } catch (e) {
-          finishBulk('一括保存中にエラーが発生しました。各パートのボタンから個別に保存してください。');
+          try {
+            finishBulk('一括保存中にエラーが発生しました。各パートのボタンから個別に保存してください。');
+          } catch (e2) {
+            // finishBulk 自体が例外で倒れた場合の最終防衛
+            finalBulkRecovery();
+          }
         }
       }
 
@@ -1611,7 +1805,9 @@
         li.appendChild(nameSpan);
         li.appendChild(metaSpan);
         var shareable = canSharePart(res);
-        var sharePrimary = shareable && !hasSavePicker();
+        // Android版Chromeでは通常ダウンロードがそのまま保存できるため、
+        // 共有を主ボタンにしない（ダウンロードを主のままにする）
+        var sharePrimary = shareable && !hasSavePicker() && !isAndroidChrome;
         var shareBtn = null;
         if (shareable) {
           shareBtn = document.createElement('button');
@@ -1722,6 +1918,8 @@
           bulkHint.textContent = groupedResults.length > 1
             ? 'すべての動画のパートを1つずつ順番に保存します。保存先の選択画面がパートごとに開くので、その都度保存先を選んでください。動画ごとに保存したい場合は、各動画の「この動画のパートをすべてダウンロード」を使ってください。保存中はこの画面を開いたままにしてください。'
             : 'パートを1つずつ順番に保存します。保存先の選択画面がパートごとに開くので、その都度保存先を選んでください。保存中はこの画面を開いたままにしてください。';
+        } else if (isAndroidChrome) {
+          bulkHint.textContent = '「ダウンロード」を押すと、保存先の選択画面を開かずに、通常はダウンロードフォルダへ保存されます。パートを1つずつ順番に保存を試みますが、ブラウザの制限で2件目以降が止まる場合があります。その場合は各パートのボタンから個別に保存してください。保存中はこの画面を開いたままにしてください。';
         } else if (lastResults.length > 0 && canSharePart(lastResults[0])) {
           bulkHint.textContent = 'この環境では「ダウンロード」で保存が始まらない場合があります。各パートの「共有して保存」のほうが保存しやすいです。一括でも保存を試みますが、始まらなかったパートは個別に「共有して保存」してください。';
         } else {
@@ -2007,13 +2205,13 @@
             if (failedCount === 0) {
               progressText.textContent = '完了しました';
               if (isMulti) {
-                if (!hasSavePicker() && allResults.length > 0 && canSharePart(allResults[0])) {
+                if (!isAndroidChrome && !hasSavePicker() && allResults.length > 0 && canSharePart(allResults[0])) {
                   setStatus(totalFiles + ' 本の動画を合計 ' + allResults.length + ' パートに分割しました。この環境では各パートの「共有して保存」のほうが保存しやすいです。「すべての動画のパートをダウンロード」でも一括で保存を試せます。');
                 } else {
                   setStatus(totalFiles + ' 本の動画を合計 ' + allResults.length + ' パートに分割しました。各動画ごと、または全体まとめて保存できます。');
                 }
               } else if (allResults.length > 0) {
-                if (!hasSavePicker() && canSharePart(allResults[0])) {
+                if (!isAndroidChrome && !hasSavePicker() && canSharePart(allResults[0])) {
                   setStatus(allResults.length + ' パートに分割しました。この環境では各パートの「共有して保存」のほうが保存しやすいです。「すべてダウンロード」でも一括で保存を試せます。');
                 } else {
                   setStatus(allResults.length + ' パートに分割しました。「すべてダウンロード」から一括で、または各パートのボタンから保存してください。');
