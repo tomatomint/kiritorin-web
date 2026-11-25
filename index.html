@@ -392,29 +392,6 @@
         cursor: pointer;
       }
       .dl:hover { background: var(--accent-soft); }
-      .share {
-        display: inline-flex;
-        align-items: center;
-        min-height: 44px;
-        padding: 6px 14px;
-        border-radius: 8px;
-        border: 1.5px solid var(--border-strong);
-        background: transparent;
-        color: var(--text);
-        font-weight: 700;
-        font-size: 15px;
-        font-family: inherit;
-        cursor: pointer;
-      }
-      /* 主ボタン（環境によって「ダウンロード」と「共有して保存」が入れ替わる） */
-      .btn-filled {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: var(--accent-text);
-        font-size: 16px;
-        padding: 6px 18px;
-      }
-      .btn-filled:hover { background: var(--accent-hover); }
       .part-note {
         flex-basis: 100%;
         color: var(--muted);
@@ -462,7 +439,7 @@
       </header>
 
       <div id="inAppBrowserBanner" class="inapp-banner" role="alert" hidden>
-        <p class="inapp-banner-text"><strong>アプリ内ブラウザで開いています。</strong>アプリ内ブラウザでは保存がうまくいかない場合があります。保存できないときは、ブラウザのメニューから「Chromeで開く」（外部ブラウザで開く）を選んで開き直すか、各パートの「共有して保存」をお試しください。</p>
+        <p class="inapp-banner-text"><strong>アプリ内ブラウザで開いています。</strong>アプリ内ブラウザでは保存がうまくいかない場合があります。保存できないときは、ブラウザのメニューから「Chromeで開く」（外部ブラウザで開く）を選んで開き直してください。</p>
         <button id="inAppBrowserBannerClose" class="inapp-banner-close" type="button" aria-label="案内を閉じる">×</button>
       </div>
 
@@ -550,7 +527,7 @@
           <li>キーフレームの位置で切るため、各パートは指定した時間より短くなり、長さも均等にはなりません。</li>
           <li>対応形式は MP4（映像：H.264 / H.265、音声：AAC）を前提としています。その他の形式では分割できない場合があります。出力は MP4 です。</li>
           <li>大きなファイルは処理に時間がかかります。処理中は画面を閉じたり、他のアプリへ切り替えたりしないでください。</li>
-          <li>アプリ内ブラウザなどでは「ダウンロード」を押しても保存が始まらないことがあります。その環境では、各パートの「共有して保存」（対応端末でのみ表示されます）のほうが保存しやすいです。まずそちらをお試しください。</li>
+          <li>アプリ内ブラウザなどでは「ダウンロード」を押しても保存が始まらないことがあります。その場合は、ブラウザのメニューから「Chromeで開く」（外部ブラウザで開く）を選んで開き直してください。</li>
         </ul>
       </section>
 
@@ -1017,9 +994,8 @@
       //   される（ギャラリー等からも参照できる）。
       // ・ピッカーが無い環境（Androidのアプリ内ブラウザ等）:
       //   Blob URLアンカー方式になるが、この方式はアプリ内ブラウザでは
-      //   保存が始まらないことが実機で確認できている。成立し得るのは
-      //   共有シート経由の保存なので、「共有して保存」を主ボタンにし、
-      //   「ダウンロード」は補助として残す。
+      //   保存が始まらないことが実機で確認できている。保存できない
+      //   場合は Chrome で開き直すよう案内する（バナー・使い方）。
       //   またアンカー方式はクリックの開始・完了を確認できないため、
       //   文言は「保存を試みました」止まりにする。
       // ・ピッカーで保存先が決まった後の書き込み失敗（容量不足等）は、
@@ -1239,8 +1215,8 @@
                 return;
               }
               // ピッカーが開けなかった。以後はピッカー無し環境として扱い、
-              // アンカー方式で保存を試みる。呼び出し側はこの結果を見て、
-              // 「共有して保存」を主ボタンに切り替える等の対応をする。
+              // アンカー方式で保存を試みる。呼び出し側はこの結果を見て
+              // 案内文を出す。
               fallBackToAnchor();
             });
         });
@@ -1278,59 +1254,30 @@
         savePart(res).then(function (how) {
           if (how === 'pickerUnavailable' || how === 'sizeMismatch' || how === 'sizeMismatchFallbackFailed' || how === 'anchorFailed') {
             // ピッカーが開けない／書き込みが信用できない環境だと判明
-            // したので、一覧を描き直して「共有して保存」を主ボタンに
-            // 切り替えてから案内を出す
+            // したので、一覧を描き直してから案内を出す
             renderResults();
           }
           var noteEl = findPartNote(res);
           if (how === 'picker') {
             setPartNote(noteEl, '保存しました。');
           } else if (how === 'anchor') {
-            setPartNote(noteEl, '保存を試みました。ブラウザのダウンロード一覧で、保存できているか確認してください。始まっていない場合は「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存を試みました。ブラウザのダウンロード一覧で、保存できているか確認してください。始まっていない場合は、もう一度「ダウンロード」をお試しください。');
           } else if (how === 'pickerUnavailable') {
-            setPartNote(noteEl, '保存先の選択画面が開きませんでした。通常のダウンロードで保存を試みました。ダウンロード一覧で確認し、始まっていない場合は「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存先の選択画面が開きませんでした。通常のダウンロードで保存を試みました。ダウンロード一覧で確認してください。始まっていない場合は、もう一度「ダウンロード」をお試しください。');
           } else if (how === 'cancelled') {
             setPartNote(noteEl, '');
           } else if (how === 'writeError') {
             setPartNote(noteEl, '保存先への書き込みに失敗しました。端末の空き容量を確認して、もう一度お試しください。');
           } else if (how === 'sizeMismatch') {
-            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存を試みました。ダウンロード一覧でファイルのサイズを確認してください。うまくいかない場合は「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存を試みました。ダウンロード一覧でファイルのサイズを確認してください。0バイトの場合は、もう一度「ダウンロード」をお試しください。');
           } else if (how === 'sizeMismatchFallbackFailed') {
-            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存し直そうとしましたが、失敗しました。「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存先に正しく書き込めていなかったため、通常のダウンロードで保存し直そうとしましたが、失敗しました。端末の空き容量を確認して、もう一度お試しください。');
           } else if (how === 'verifyUnknown') {
-            setPartNote(noteEl, '保存できたか確認できませんでした。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存できたか確認できませんでした。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は、もう一度「ダウンロード」をお試しください。');
           } else if (how === 'anchorFailed') {
-            setPartNote(noteEl, '保存を開始できませんでした。もう一度お試しいただくか、「共有して保存」をお試しください。');
+            setPartNote(noteEl, '保存を開始できませんでした。アプリ内ブラウザで開いている場合はChromeで開き直してから、もう一度お試しください。');
           }
         });
-      }
-
-      function partFile(res) {
-        return new File([res.blob], res.name, { type: 'video/mp4' });
-      }
-
-      function canSharePart(res) {
-        if (!navigator.share || !navigator.canShare) return false;
-        try {
-          return navigator.canShare({ files: [partFile(res)] });
-        } catch (e) {
-          return false;
-        }
-      }
-
-      function sharePart(res) {
-        // partFile の生成や navigator.share の呼び出し自体が同期例外を
-        // 投げる環境でも、案内が出ないまま無言にならないよう全体を囲む
-        try {
-          Promise.resolve(navigator.share({ files: [partFile(res)] })).then(function () {
-            setPartNote(findPartNote(res), '');
-          }).catch(function (err) {
-            if (err && err.name === 'AbortError') return;
-            setPartNote(findPartNote(res), '共有できませんでした。「ダウンロード」をお試しください。');
-          });
-        } catch (e) {
-          setPartNote(findPartNote(res), '共有できませんでした。「ダウンロード」をお試しください。');
-        }
       }
 
       // 一括保存：対象リストは開始時に固定し、単体と同じ環境別経路で
@@ -1430,8 +1377,8 @@
             }
           } catch (e) {}
           bulkDownloading = false;
-          // ピッカーが開けない環境だと分かったら、一覧の主ボタンを
-          // 「共有して保存」に切り替える（再描画でボタンが作り直される）。
+          // ピッカーが開けない環境だと分かったら、一覧を描き直す
+          // （再描画でボタンの状態が最新になる）。
           // 再描画で例外が起きても、後段のボタン・状態の復帰が飛ばされ
           // ないよう、ここだけは例外を握って後片付けを続ける
           var needRerender = pickerBroken;
@@ -1526,7 +1473,7 @@
               if (!bulkDownloading) return;
               if (i >= total) {
                 if (verifyUnknownCount > 0) {
-                  finishBulk('全 ' + total + ' パートの保存を試みました。確認できなかったパートがあります。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は、各パートの「共有して保存」をお試しください。');
+                  finishBulk('全 ' + total + ' パートの保存を試みました。確認できなかったパートがあります。保存先のファイルのサイズを確認してください。0バイトなど正しく保存できていない場合は、各パートの「ダウンロード」から保存し直してください。');
                 } else {
                   finishBulk('全 ' + total + ' パートの保存が終わりました。');
                 }
@@ -1553,7 +1500,7 @@
                   renderResults();
                   setAllBulkButtonsDisabled(true);
                   try { var s3 = currentStatusEl(); if (s3) s3.textContent = '保存先の選択画面が開きませんでした。通常のダウンロードに切り替えて、残りの保存を試みます。'; if (scopeVideoIndex == null) bulkStatus.textContent = '保存先の選択画面が開きませんでした。通常のダウンロードに切り替えて、残りの保存を試みます。'; } catch (e) {}
-                  runAnchorFrom(i + 1, '全 ' + total + ' パートの保存を試みました。保存先の選択画面が開きませんでした。通常のダウンロードで保存を試みています。ダウンロード一覧を確認し、保存できていないパートは各パートの「共有して保存」から保存してください。');
+                  runAnchorFrom(i + 1, '全 ' + total + ' パートの保存を試みました。保存先の選択画面が開きませんでした。通常のダウンロードで保存を試みています。ダウンロード一覧を確認し、保存できていないパートは各パートの「ダウンロード」から保存してください。');
                 } else if (how === 'sizeMismatch') {
                   // そのパートは savePart 内で通常ダウンロードに切り替えて
                   // 保存を試行済み。残りもアンカー方式に切り替えて続ける
@@ -1779,9 +1726,8 @@
       }
 
       // 分割結果の一覧を描画する。動画ごとにグループ化して表示する。
-      // ピッカーが「あるのに開けない」と判明したときに主ボタン
-      // （ダウンロード ⇔ 共有して保存）を切り替えるため、関数として
-      // 切り出して再描画できるようにしている。
+      // ピッカーが「あるのに開けない」と判明したときなどに再描画
+      // できるよう、関数として切り出している。
       function createPartItem(res) {
         var li = document.createElement('li');
         li.setAttribute('data-part-index', res.index);
@@ -1804,29 +1750,7 @@
         });
         li.appendChild(nameSpan);
         li.appendChild(metaSpan);
-        var shareable = canSharePart(res);
-        // Android版Chromeでは通常ダウンロードがそのまま保存できるため、
-        // 共有を主ボタンにしない（ダウンロードを主のままにする）
-        var sharePrimary = shareable && !hasSavePicker() && !isAndroidChrome;
-        var shareBtn = null;
-        if (shareable) {
-          shareBtn = document.createElement('button');
-          shareBtn.type = 'button';
-          shareBtn.className = 'share';
-          shareBtn.textContent = '共有して保存';
-          shareBtn.addEventListener('click', function () {
-            sharePart(res);
-          });
-        }
-        if (sharePrimary) {
-          shareBtn.className = 'share btn-filled';
-          dlBtn.className = 'share';
-          li.appendChild(shareBtn);
-          li.appendChild(dlBtn);
-        } else {
-          li.appendChild(dlBtn);
-          if (shareBtn) li.appendChild(shareBtn);
-        }
+        li.appendChild(dlBtn);
         li.appendChild(note);
         return li;
       }
@@ -1920,8 +1844,6 @@
             : 'パートを1つずつ順番に保存します。保存先の選択画面がパートごとに開くので、その都度保存先を選んでください。保存中はこの画面を開いたままにしてください。';
         } else if (isAndroidChrome) {
           bulkHint.textContent = '「ダウンロード」を押すと、保存先の選択画面を開かずに、通常はダウンロードフォルダへ保存されます。パートを1つずつ順番に保存を試みますが、ブラウザの制限で2件目以降が止まる場合があります。その場合は各パートのボタンから個別に保存してください。保存中はこの画面を開いたままにしてください。';
-        } else if (lastResults.length > 0 && canSharePart(lastResults[0])) {
-          bulkHint.textContent = 'この環境では「ダウンロード」で保存が始まらない場合があります。各パートの「共有して保存」のほうが保存しやすいです。一括でも保存を試みますが、始まらなかったパートは個別に「共有して保存」してください。';
         } else {
           bulkHint.textContent = 'パートを1つずつ順番に保存を試みます。ブラウザの制限で2件目以降が止まる場合があります。その場合は各パートのボタンから個別に保存してください。保存中はこの画面を開いたままにしてください。';
         }
@@ -2205,17 +2127,9 @@
             if (failedCount === 0) {
               progressText.textContent = '完了しました';
               if (isMulti) {
-                if (!isAndroidChrome && !hasSavePicker() && allResults.length > 0 && canSharePart(allResults[0])) {
-                  setStatus(totalFiles + ' 本の動画を合計 ' + allResults.length + ' パートに分割しました。この環境では各パートの「共有して保存」のほうが保存しやすいです。「すべての動画のパートをダウンロード」でも一括で保存を試せます。');
-                } else {
-                  setStatus(totalFiles + ' 本の動画を合計 ' + allResults.length + ' パートに分割しました。各動画ごと、または全体まとめて保存できます。');
-                }
+                setStatus(totalFiles + ' 本の動画を合計 ' + allResults.length + ' パートに分割しました。各動画ごと、または全体まとめて保存できます。');
               } else if (allResults.length > 0) {
-                if (!isAndroidChrome && !hasSavePicker() && canSharePart(allResults[0])) {
-                  setStatus(allResults.length + ' パートに分割しました。この環境では各パートの「共有して保存」のほうが保存しやすいです。「すべてダウンロード」でも一括で保存を試せます。');
-                } else {
-                  setStatus(allResults.length + ' パートに分割しました。「すべてダウンロード」から一括で、または各パートのボタンから保存してください。');
-                }
+                setStatus(allResults.length + ' パートに分割しました。「すべてダウンロード」から一括で、または各パートのボタンから保存してください。');
               }
             } else if (allResults.length > 0) {
               progressText.textContent = '完了しました（一部失敗）';
